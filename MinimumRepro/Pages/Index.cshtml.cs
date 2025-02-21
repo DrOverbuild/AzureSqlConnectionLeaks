@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Data.SqlClient;
 using Web.Entities;
@@ -9,6 +10,7 @@ public class IndexModel : PageModel
     private readonly ILogger<IndexModel> _logger;
     private readonly IConfiguration _configuration;
     public BasicEntity? Event { get; set; }
+    public string SqlClientFullName { get; set; } = null!;
 
     public IndexModel(ILogger<IndexModel> logger, IConfiguration configuration)
     {
@@ -18,23 +20,34 @@ public class IndexModel : PageModel
 
     public async Task OnGet()
     {
-        await using var dbConn = new SqlConnection(_configuration.GetConnectionString("DefaultConnection"));
-        dbConn.Open();
-        await using var command = dbConn.CreateCommand();
-        command.CommandText = "SELECT TOP 1 [Id], [RecordDate], [Active], [Description] FROM BasicEntities";
-        await using var reader = await command.ExecuteReaderAsync();
+        SqlClientFullName = typeof(SqlConnection).Assembly.GetName().FullName;
 
-        if (!reader.Read())
+        await using (var dbConn = new SqlConnection(_configuration.GetConnectionString("DefaultConnection")))
         {
-            return;
+            dbConn.Open();
+            await using (var command = dbConn.CreateCommand())
+            {
+                command.CommandText = "SELECT TOP 1 [Id], [RecordDate], [Active], [Description] FROM BasicEntities";
+                await using (var reader = await command.ExecuteReaderAsync())
+                {
+
+                    if (!reader.Read())
+                    {
+                        return;
+                    }
+
+                    Event = new BasicEntity
+                    {
+                        Id = reader.GetInt32(0),
+                        RecordDate = reader.GetDateTime(1),
+                        Active = reader.GetBoolean(2),
+                        Description = reader.GetString(3)
+                    };
+                }
+            }
         }
-
-        Event = new BasicEntity
-        {
-            Id = reader.GetInt32(0),
-            RecordDate = reader.GetDateTime(1),
-            Active = reader.GetBoolean(2),
-            Description = reader.GetString(3)
-        };
+        
+        SqlConnection.ClearAllPools();
+        _logger.LogInformation("SqlConnection disposed and all pools cleared.");
     }
 }
