@@ -1,3 +1,7 @@
+using System.Diagnostics.Tracing;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.Data.SqlClient;
 using Web.Entities;
@@ -18,23 +22,35 @@ public class IndexModel : PageModel
 
     public async Task OnGet()
     {
-        await using var dbConn = new SqlConnection(_configuration.GetConnectionString("DefaultConnection"));
-        dbConn.Open();
-        await using var command = dbConn.CreateCommand();
-        command.CommandText = "SELECT TOP 1 [Id], [RecordDate], [Active], [Description] FROM BasicEntities";
-        await using var reader = await command.ExecuteReaderAsync();
+        var ipHostInfo = await Dns.GetHostEntryAsync("******");
+        var ipEndpoint = new IPEndPoint(ipHostInfo.AddressList[0], 5000);
 
-        if (!reader.Read())
+        var sb = new StringBuilder();
+        
+        var client = new Socket(ipEndpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+        await client.ConnectAsync(ipEndpoint);
+        while (true)
         {
-            return;
+            var message = "Hi friends! <|EOM|>";
+            var messageBytes = Encoding.UTF8.GetBytes(message);
+            await client.SendAsync(messageBytes, SocketFlags.None);
+            _logger.LogInformation("Sent message: {message}", message);
+            
+            var buffer = new byte[1024];
+            var receivedLength = await client.ReceiveAsync(buffer, SocketFlags.None);
+            var response = Encoding.UTF8.GetString(buffer, 0, receivedLength);
+            sb.Append(response);
+            if (response.Contains("<|ACK|>"))
+            {
+                _logger.LogInformation("Received acknowledgement: {response}", response);
+                break;
+            }
+
         }
-
-        Event = new BasicEntity
-        {
-            Id = reader.GetInt32(0),
-            RecordDate = reader.GetDateTime(1),
-            Active = reader.GetBoolean(2),
-            Description = reader.GetString(3)
-        };
+        client.Close();
+        
+        var address = string.Join("<br/>", ipHostInfo.AddressList.Select(ip => ip.ToString()));
+        ViewData["iphost"] = address;
+        ViewData["message"] = sb.ToString();
     }
 }
