@@ -26,16 +26,17 @@ public class IndexModel : PageModel
         var ipEndpoint = new IPEndPoint(ipHostInfo.AddressList[0], 5000);
 
         var sb = new StringBuilder();
-        
-        var client = new Socket(ipEndpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+
+        using var client = new Socket(ipEndpoint.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
         await client.ConnectAsync(ipEndpoint);
+        var message = "Hi friends! <|EOM|>";
+        var messageBytes = Encoding.UTF8.GetBytes(message);
+        await client.SendAsync(messageBytes, SocketFlags.None);
+        _logger.LogInformation("Sent message: {message}", message);
+
+
         while (true)
         {
-            var message = "Hi friends! <|EOM|>";
-            var messageBytes = Encoding.UTF8.GetBytes(message);
-            await client.SendAsync(messageBytes, SocketFlags.None);
-            _logger.LogInformation("Sent message: {message}", message);
-            
             var buffer = new byte[1024];
             var receivedLength = await client.ReceiveAsync(buffer, SocketFlags.None);
             var response = Encoding.UTF8.GetString(buffer, 0, receivedLength);
@@ -45,10 +46,14 @@ public class IndexModel : PageModel
                 _logger.LogInformation("Received acknowledgement: {response}", response);
                 break;
             }
-
+            else
+            {
+                _logger.LogInformation("Received response: {response}", response);
+            }
         }
+
         client.Close();
-        
+
         var address = string.Join("<br/>", ipHostInfo.AddressList.Select(ip => ip.ToString()));
         ViewData["iphost"] = address;
         ViewData["message"] = sb.ToString();
